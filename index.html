@@ -76,6 +76,11 @@
 .lock-row input{ font-size:20px; letter-spacing:6px; text-align:center; }
 .lock-error{ color: var(--danger); font-size:12px; min-height: 1em; }
 
+    #bm-symptoms label:has(input:checked){ 
+  background: #1d2a3a; 
+  box-shadow: inset 0 0 0 1px #3b82f6aa; 
+    }
+
   </style>
 </head>
 <body>
@@ -194,6 +199,27 @@
         </div>
       </div>
       <label>Notes</label>
+      <div class="row">
+  <div>
+    <label>Symptoms (tap any that apply)</label>
+    <div id="bm-symptoms" style="display:flex;flex-wrap:wrap;gap:8px">
+      <label class="pill" style="cursor:pointer">
+        <input type="checkbox" value="bloating" style="display:none"> Bloating
+      </label>
+      <label class="pill" style="cursor:pointer">
+        <input type="checkbox" value="gas" style="display:none"> Gas
+      </label>
+      <label class="pill" style="cursor:pointer">
+        <input type="checkbox" value="cramps" style="display:none"> Cramps
+      </label>
+      <label class="pill" style="cursor:pointer">
+        <input type="checkbox" value="nausea" style="display:none"> Nausea
+      </label>
+    </div>
+    <div class="small">Tap again to toggle off.</div>
+  </div>
+  <div></div>
+</div>
       <textarea id="bm-notes" placeholder="Anything notable (location, triggers, etc.)"></textarea>
       <div class="toolbar">
         <button class="primary" id="save-bm">Save BM</button>
@@ -276,6 +302,20 @@
           <label>To</label>
           <input id="h-to" type="date" />
         </div>
+        <div class="grid-2" style="margin-top:8px">
+  <div>
+    <label>Filter by Symptoms</label>
+    <select id="h-symptoms" multiple>
+      <option value="bloating">Bloating</option>
+      <option value="gas">Gas</option>
+      <option value="cramps">Cramps</option>
+      <option value="nausea">Nausea</option>
+    </select>
+    <div class="small">Tip: tap to select multiple; tap again to deselect.</div>
+  </div>
+  <div></div>
+</div>
+
       </div>
       <div class="toolbar" style="margin-top:8px">
         <button id="filter-run">Apply Filter</button>
@@ -443,19 +483,24 @@ function initLock(){
 
     // --- Save BM ---
     $('#save-bm').onclick = () => {
-      const entry = {
-        id: crypto.randomUUID(),
-        kind: 'bm',
-        dt: new Date($('#bm-dt').value).toISOString(),
-        bristol: Number($('#bm-bristol').value),
-        urgency: Number($('#bm-urgency').value),
-        pain: Number($('#bm-pain').value),
-        blood: $('#bm-blood').value,
-        volume: $('#bm-volume').value,
-        strain: $('#bm-strain').value,
-        duration: Number($('#bm-dur').value || 0),
-        notes: $('#bm-notes').value.trim()
-      };
+      const sym = Array.from($('#bm-symptoms input[type="checkbox"]'))
+  .filter(x => x.checked)
+  .map(x => x.value);
+
+const entry = {
+  id: crypto.randomUUID(),
+  kind: 'bm',
+  dt: new Date($('#bm-dt').value).toISOString(),
+  bristol: Number($('#bm-bristol').value),
+  urgency: Number($('#bm-urgency').value),
+  pain: Number($('#bm-pain').value),
+  blood: $('#bm-blood').value,
+  volume: $('#bm-volume').value,
+  strain: $('#bm-strain').value,
+  duration: Number($('#bm-dur').value || 0),
+  symptoms: sym,                     // 👈 NEW
+  notes: $('#bm-notes').value.trim()
+};
       DB.entries.push(entry);
       save(DB);
       $('#bm-status').textContent = 'Saved ✅';
@@ -507,40 +552,53 @@ function initLock(){
       if (to && t > new Date(to + 'T23:59').getTime()) return false;
       return true;
     };
+    
+function hasAllSymptoms(entry, wanted){
+  if (!wanted.length) return true;
+  const have = (entry.symptoms || []);
+  return wanted.every(w => have.includes(w));
+}
 
     function renderHistory() {
-      const tbody = $('#history-table tbody');
-      tbody.innerHTML = '';
-      const from = $('#h-from').value; const to = $('#h-to').value;
-      let rows = 0;
-      // newest first
-      [...DB.entries].sort((a,b)=> new Date(b.dt)-new Date(a.dt)).forEach(e => {
-        if (!inRange(e.dt, from, to)) return;
-        const tr = document.createElement('tr');
-        const type = e.kind === 'bm' ? 'BM' : 'Meal';
-        const details = e.kind === 'bm'
-          ? `Bristol ${e.bristol}, vol ${e.volume}${e.blood!=='no' ? ', blood:'+e.blood : ''}${e.notes? ' — '+e.notes:''}`
-          : `${e.mealType}: ${(e.foods||'').slice(0,80)}${(e.foods||'').length>80?'…':''}`;
-        tr.innerHTML = `
-          <td>${type}</td>
-          <td class="mono">${fmtDT(e.dt)}</td>
-          <td>${details}</td>
-          <td class="center">
-            <button data-edit="${e.id}">Edit</button>
-            <button class="danger" data-del="${e.id}">Delete</button>
-          </td>`;
-        tbody.appendChild(tr);
-        rows++;
-      });
-      $('#history-empty').classList.toggle('hidden', rows>0);
-      // wire actions
-      $$('#history-table [data-del]').forEach(b => b.onclick = () => {
-        const id = b.getAttribute('data-del');
-        DB.entries = DB.entries.filter(x => x.id !== id);
-        save(DB); renderHistory(); renderCharts();
-      });
-      $$('#history-table [data-edit]').forEach(b => b.onclick = () => editEntry(b.getAttribute('data-edit')));
-    }
+  const tbody = $('#history-table tbody');
+  tbody.innerHTML = '';
+  const from = $('#h-from').value;
+  const to = $('#h-to').value;
+  const wanted = Array.from($('#h-symptoms')?.selectedOptions || []).map(o => o.value);
+
+  let rows = 0;
+  // newest first
+  [...DB.entries].sort((a,b)=> new Date(b.dt)-new Date(a.dt)).forEach(e => {
+    if (!inRange(e.dt, from, to)) return;
+    if (e.kind === 'bm' && !hasAllSymptoms(e, wanted)) return;
+
+    const tr = document.createElement('tr');
+    const type = e.kind === 'bm' ? 'BM' : 'Meal';
+    const symTxt = (e.kind==='bm' && (e.symptoms||[]).length) ? ` [${e.symptoms.join(', ')}]` : '';
+    const details = e.kind === 'bm'
+      ? `Bristol ${e.bristol}, vol ${e.volume}${e.blood!=='no' ? ', blood:'+e.blood : ''}${symTxt}${e.notes? ' — '+e.notes:''}`
+      : `${e.mealType}: ${(e.foods||'').slice(0,80)}${(e.foods||'').length>80?'…':''}`;
+
+    tr.innerHTML = `
+      <td>${type}</td>
+      <td class="mono">${fmtDT(e.dt)}</td>
+      <td>${details}</td>
+      <td class="center">
+        <button data-edit="${e.id}">Edit</button>
+        <button class="danger" data-del="${e.id}">Delete</button>
+      </td>`;
+    tbody.appendChild(tr);
+    rows++;
+  });
+  $('#history-empty').classList.toggle('hidden', rows>0);
+  // wire actions
+  $$('#history-table [data-del]').forEach(b => b.onclick = () => {
+    const id = b.getAttribute('data-del');
+    DB.entries = DB.entries.filter(x => x.id !== id);
+    save(DB); renderHistory(); renderCharts();
+  });
+  $$('#history-table [data-edit]').forEach(b => b.onclick = () => editEntry(b.getAttribute('data-edit')));
+}
 
     function editEntry(id) {
       const e = DB.entries.find(x => x.id === id); if (!e) return;
@@ -555,6 +613,12 @@ function initLock(){
         $('#bm-strain').value = e.strain;
         $('#bm-dur').value = e.duration || '';
         $('#bm-notes').value = e.notes || '';
+ 
+        // set symptom checkboxes
+$$('#bm-symptoms input[type="checkbox"]').forEach(cb => {
+  cb.checked = (e.symptoms || []).includes(cb.value);
+});
+
         // On next save, we replace (simple approach)
         const oldHandler = $('#save-bm').onclick;
         $('#save-bm').textContent = 'Update BM';
@@ -595,18 +659,25 @@ function initLock(){
         $('#save-meal').onclick = () => {
           DB.entries = DB.entries.filter(x => x.id !== id);
           const sel = Array.from($('#meal-flags').selectedOptions).map(o => o.value);
-          const updated = {
-            id,
-            kind: 'meal',
-            dt: new Date($('#meal-dt').value).toISOString(),
-            mealType: $('#meal-type').value,
-            foods: $('#meal-foods').value.trim(),
-            fiber: Number($('#meal-fiber').value || 0),
-            water: Number($('#meal-water').value || 0),
-            flags: sel,
-            stress: Number($('#meal-stress').value),
-            notes: $('#meal-notes').value.trim()
-          };
+          const sym = Array.from($('#bm-symptoms input[type="checkbox"]'))
+  .filter(x => x.checked)
+  .map(x => x.value);
+
+const updated = {
+  id,
+  kind: 'bm',
+  dt: new Date($('#bm-dt').value).toISOString(),
+  bristol: Number($('#bm-bristol').value),
+  urgency: Number($('#bm-urgency').value),
+  pain: Number($('#bm-pain').value),
+  blood: $('#bm-blood').value,
+  volume: $('#bm-volume').value,
+  strain: $('#bm-strain').value,
+  duration: Number($('#bm-dur').value || 0),
+  symptoms: sym,                     // 👈 NEW
+  notes: $('#bm-notes').value.trim()
+};
+
           DB.entries.push(updated); save(DB); renderHistory(); renderCharts();
           $('#meal-status').textContent = 'Updated ✅';
           setTimeout(()=> $('#meal-status').textContent = '', 1500);
@@ -619,7 +690,7 @@ function initLock(){
     // --- CSV export/import ---
     const csvEscape = s => '"' + String(s).replaceAll('"', '""') + '"';
     function toCSV() {
-      const headers = ['id','kind','dt','bristol','urgency','pain','blood','volume','strain','duration','notes','mealType','foods','fiber','water','flags','stress'];
+      const headers = ['id','kind','dt','bristol','urgency','pain','blood','volume','strain','duration','notes','mealType','foods','fiber','water','flags','stress','symptoms'];
       const lines = [headers.join(',')];
       DB.entries.forEach(e => {
         lines.push([
@@ -637,7 +708,8 @@ function initLock(){
           e.kind==='meal'?e.fiber:'',
           e.kind==='meal'?e.water:'',
           e.kind==='meal'?(e.flags||[]).join('|'):'',
-          e.kind==='meal'?e.stress:''
+          e.kind==='meal'?e.stress:'',
+          e.kind==='bm' ? (e.symptoms || []).join('|') : ''
         ].map(v=> csvEscape(v ?? '')).join(','));
       });
       return lines.join('\n');
@@ -684,16 +756,17 @@ function initLock(){
         let e;
         if (kind === 'bm') {
           e = {
-            ...base,
-            bristol: Number(get(cols,'bristol')||0),
-            urgency: Number(get(cols,'urgency')||0),
-            pain: Number(get(cols,'pain')||0),
-            blood: get(cols,'blood')||'no',
-            volume: get(cols,'volume')||'medium',
-            strain: get(cols,'strain')||'no',
-            duration: Number(get(cols,'duration')||0),
-            notes: get(cols,'notes')||''
-          };
+  ...base,
+  bristol: Number(get(cols,'bristol')||0),
+  urgency: Number(get(cols,'urgency')||0),
+  pain: Number(get(cols,'pain')||0),
+  blood: get(cols,'blood')||'no',
+  volume: get(cols,'volume')||'medium',
+  strain: get(cols,'strain')||'no',
+  duration: Number(get(cols,'duration')||0),
+  symptoms: (get(cols,'symptoms')||'').split('|').filter(Boolean), // 👈 NEW
+  notes: get(cols,'notes')||''
+};
         } else {
           e = {
             ...base,
