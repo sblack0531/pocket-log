@@ -68,6 +68,14 @@
     .bristol { display: grid; gap: 6px; }
     .bristol span { font-size: 12px; color: var(--text-dim); }
     footer.spacer { height: 24px; }
+    /* --- PIN lock styles --- */
+.lock-overlay{ position:fixed; inset:0; z-index:9999; display:flex; align-items:center; justify-content:center; background:linear-gradient(180deg, rgba(11,15,20,.85), rgba(11,15,20,.95)); backdrop-filter: blur(6px); }
+.lock-card{ width:min(480px, 92vw); background: rgba(18,25,34,.98); border:1px solid var(--muted); border-radius:16px; padding:18px; box-shadow: 0 20px 80px rgba(0,0,0,.45); }
+.lock-card h3{ margin:0 0 6px 0; }
+.lock-row{ display:grid; gap:10px; }
+.lock-row input{ font-size:20px; letter-spacing:6px; text-align:center; }
+.lock-error{ color: var(--danger); font-size:12px; min-height: 1em; }
+
   </style>
 </head>
 <body>
@@ -79,7 +87,45 @@
       <button class="pill" data-tab="history">History</button>
       <button class="pill" data-tab="trends">Trends</button>
     </div>
+    <button class="pill" id="lock-btn" title="Lock app">🔒 Lock</button>
   </header>
+<!-- PIN LOCK OVERLAY -->
+<div id="lock-overlay" class="lock-overlay">
+  <div class="lock-card">
+    <div id="lock-setup">
+      <h3>Set a 4-digit PIN</h3>
+      <div class="lock-row">
+        <label>New PIN</label>
+        <input id="new-pin" type="password" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="••••">
+      </div>
+      <div class="lock-row">
+        <label>Confirm PIN</label>
+        <input id="new-pin2" type="password" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="••••">
+      </div>
+      <div class="toolbar" style="margin-top:8px">
+        <button class="primary" id="save-pin">Save PIN</button>
+        <button class="ghost" id="skip-pin">Skip for now</button>
+      </div>
+      <div class="small">You can add a PIN later via the 🔒 Lock button.</div>
+      <div id="lock-setup-error" class="lock-error"></div>
+    </div>
+
+    <div id="lock-enter" class="hidden">
+      <h3>Enter PIN</h3>
+      <div class="lock-row">
+        <input id="pin-input" type="password" inputmode="numeric" pattern="\d{4}" maxlength="4" placeholder="••••" autofocus>
+      </div>
+      <label class="small" style="display:flex;gap:8px;align-items:center;margin-top:8px">
+        <input type="checkbox" id="pin-remember"> Remember on this device
+      </label>
+      <div class="toolbar" style="margin-top:8px">
+        <button class="primary" id="unlock-btn">Unlock</button>
+      </div>
+      <div id="lock-enter-error" class="lock-error"></div>
+      <div class="small">Forgot your PIN? Safari → Settings → Advanced → Website Data → remove data for your site.</div>
+    </div>
+  </div>
+</div>
 
   <main>
     <!-- BM FORM -->
@@ -280,6 +326,69 @@
 
   <script>
     // --- Utility helpers ---
+    // === PIN Lock ===
+const PIN_KEY = 'ppl-pin-v1';
+const REMEMBER_KEY = 'ppl-pin-remember';
+
+function getPIN(){ try { return localStorage.getItem(PIN_KEY) || null; } catch { return null; } }
+function setPIN(p){ localStorage.setItem(PIN_KEY, p); }
+function clearRemember(){ localStorage.removeItem(REMEMBER_KEY); }
+function isRemembered(){ return localStorage.getItem(REMEMBER_KEY) === 'true'; }
+function rememberIf(checked){ if (checked) localStorage.setItem(REMEMBER_KEY,'true'); else clearRemember(); }
+
+function show(el){ el.classList.remove('hidden'); }
+function hide(el){ el.classList.add('hidden'); }
+function showOverlay(){ $('#lock-overlay').classList.remove('hidden'); }
+function hideOverlay(){ $('#lock-overlay').classList.add('hidden'); }
+
+function initLock(){
+  const hasPin = !!getPIN();
+  if (!hasPin){
+    showOverlay();
+    show($('#lock-setup')); hide($('#lock-enter'));
+  } else if (!isRemembered()) {
+    showOverlay();
+    hide($('#lock-setup')); show($('#lock-enter'));
+    $('#pin-input').focus();
+  } else {
+    hideOverlay();
+  }
+
+  $('#save-pin').onclick = () => {
+    const p1 = $('#new-pin').value.trim();
+    const p2 = $('#new-pin2').value.trim();
+    const err = $('#lock-setup-error');
+    if (!/^[0-9]{4}$/.test(p1)) { err.textContent = 'PIN must be 4 digits.'; return; }
+    if (p1 !== p2){ err.textContent = 'PINs do not match.'; return; }
+    setPIN(p1); err.textContent = ''; hideOverlay();
+  };
+  $('#skip-pin').onclick = () => { hideOverlay(); };
+
+  function tryUnlock(){
+    const input = $('#pin-input').value.trim();
+    const err = $('#lock-enter-error');
+    if (input === getPIN()){
+      rememberIf($('#pin-remember').checked);
+      err.textContent = ''; hideOverlay();
+      $('#pin-input').value = '';
+    } else {
+      err.textContent = 'Incorrect PIN. Try again.';
+      $('#pin-input').select();
+    }
+  }
+  $('#unlock-btn').onclick = tryUnlock;
+  $('#pin-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') tryUnlock(); });
+
+  const lb = $('#lock-btn');
+  if (lb){
+    lb.onclick = () => {
+      clearRemember();
+      hide($('#lock-setup')); show($('#lock-enter'));
+      showOverlay(); $('#pin-input').focus();
+    };
+  }
+}
+
     const $ = sel => document.querySelector(sel);
     const $$ = sel => Array.from(document.querySelectorAll(sel));
     const pad2 = n => String(n).padStart(2, '0');
@@ -707,6 +816,7 @@
     $('#filter-clear').onclick = () => { $('#h-from').value=''; $('#h-to').value=''; renderHistory(); };
 
     // Initial
+    initLock();
     renderHistory();
     renderCharts();
   </script>
