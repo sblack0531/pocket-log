@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#121922">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pocket Poop Log</title>
+  <meta name="description" content="Track bowel movements, meals, and symptoms. 100% local, offline-capable via localStorage. Export/Import CSV." />
+  <style>
+    :root {
+      --bg: #0b0f14;        /* deep slate */
+      --card: #121922;      /* soft navy */
+      --muted: #2a3646;     /* muted border */
+      --accent: #6ee7b7;    /* mint */
+      --accent2: #7aa2f7;   /* soft blue */
+      --text: #e6edf3;      /* near white */
+      --text-dim: #a6b1bb;  /* dim */
+      --danger: #f87171;    /* red */
+      --warn: #fbbf24;      /* amber */
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial, sans-serif;
+      color: var(--text); background: radial-gradient(1200px 800px at 70% -10%, #132033 0%, var(--bg) 55%);
+    }
+    header {
+      position: sticky; top: 0; z-index: 5;
+      background: linear-gradient(180deg, rgba(11,15,20,.95), rgba(11,15,20,.75));
+      backdrop-filter: blur(6px);
+      border-bottom: 1px solid var(--muted);
+      padding: 10px 14px; display: flex; gap: 10px; align-items: center; justify-content: space-between;
+    }
+    h1 { font-size: 18px; margin: 0; letter-spacing: .2px; }
+    .pill { border: 1px solid var(--muted); background: var(--card); color: var(--text);
+      padding: 8px 12px; border-radius: 999px; font-weight: 600; font-size: 13px; }
+    .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    main { padding: 16px; display: grid; gap: 16px; }
+    .card { background: rgba(18,25,34,.9); border: 1px solid var(--muted); border-radius: 16px; padding: 14px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    label { font-size: 12px; color: var(--text-dim); display: block; margin-bottom: 6px; }
+    input, select, textarea {
+      width: 100%; background: #0f1520; border: 1px solid #253044; color: var(--text);
+      padding: 10px 12px; border-radius: 12px; font-size: 14px; outline: none;
+    }
+    textarea { min-height: 78px; resize: vertical; }
+    button {
+      appearance: none; border: 1px solid var(--muted); background: linear-gradient(180deg, #1a2534, #121a26);
+      color: var(--text); padding: 10px 14px; border-radius: 12px; font-weight: 700; cursor: pointer; font-size: 14px;
+    }
+    button.primary { border-color: #1e3a5f; background: linear-gradient(180deg, #2563eb22, #2563eb11);
+      box-shadow: inset 0 0 0 1px #3b82f680; }
+    button.ghost { background: transparent; }
+    button.danger { border-color: #7f1d1d; background: #7f1d1d30; }
+    .toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+    .hidden { display: none !important; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid #233146; padding: 10px; font-size: 13px; text-align: left; }
+    th { color: var(--text-dim); font-weight: 600; }
+    .badge { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--muted); font-size: 12px; }
+    .center { text-align: center; }
+    .small { font-size: 12px; color: var(--text-dim); }
+    canvas { width: 100%; height: 180px; display: block; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2,1fr); gap: 10px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .bristol { display: grid; gap: 6px; }
+    .bristol span { font-size: 12px; color: var(--text-dim); }
+    footer.spacer { height: 24px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>💩 Pocket Poop Log</h1>
+    <div class="tabs">
+      <button class="pill" data-tab="bm">BM Log</button>
+      <button class="pill" data-tab="meal">Meals</button>
+      <button class="pill" data-tab="history">History</button>
+      <button class="pill" data-tab="trends">Trends</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- BM FORM -->
+    <section id="tab-bm" class="card">
+      <h2 style="margin:0 0 10px 0">Log a Bowel Movement</h2>
+      <div class="row">
+        <div>
+          <label>Date/Time</label>
+          <input id="bm-dt" type="datetime-local" />
+        </div>
+        <div>
+          <label>Duration (min, optional)</label>
+          <input id="bm-dur" type="number" inputmode="decimal" placeholder="e.g., 5" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Bristol Scale</label>
+          <select id="bm-bristol"></select>
+          <div class="bristol small" id="bristol-help"></div>
+        </div>
+        <div>
+          <label>Urgency</label>
+          <select id="bm-urgency">
+            <option value="0">None</option>
+            <option value="1">Mild</option>
+            <option value="2">Moderate</option>
+            <option value="3">Severe</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Pain</label>
+          <select id="bm-pain">
+            <option value="0">None</option>
+            <option value="1">Mild</option>
+            <option value="2">Moderate</option>
+            <option value="3">Severe</option>
+          </select>
+        </div>
+        <div>
+          <label>Blood?</label>
+          <select id="bm-blood">
+            <option value="no">No</option>
+            <option value="trace">Trace</option>
+            <option value="yes">Yes</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Output Volume (est.)</label>
+          <select id="bm-volume">
+            <option value="small">Small</option>
+            <option value="medium" selected>Medium</option>
+            <option value="large">Large</option>
+          </select>
+        </div>
+        <div>
+          <label>Straining?</label>
+          <select id="bm-strain">
+            <option value="no" selected>No</option>
+            <option value="yes">Yes</option>
+          </select>
+        </div>
+      </div>
+      <label>Notes</label>
+      <textarea id="bm-notes" placeholder="Anything notable (location, triggers, etc.)"></textarea>
+      <div class="toolbar">
+        <button class="primary" id="save-bm">Save BM</button>
+        <button class="ghost" id="bm-now">Set to Now</button>
+        <span class="small" id="bm-status"></span>
+      </div>
+    </section>
+
+    <!-- MEAL FORM -->
+    <section id="tab-meal" class="card hidden">
+      <h2 style="margin:0 0 10px 0">Log a Meal / Snack</h2>
+      <div class="row">
+        <div>
+          <label>Date/Time</label>
+          <input id="meal-dt" type="datetime-local" />
+        </div>
+        <div>
+          <label>Meal Type</label>
+          <select id="meal-type">
+            <option>Breakfast</option>
+            <option>Lunch</option>
+            <option>Dinner</option>
+            <option>Snack</option>
+          </select>
+        </div>
+      </div>
+      <label>Foods / Ingredients</label>
+      <textarea id="meal-foods" placeholder="Example: chicken sandwich, fries, iced coffee"></textarea>
+      <div class="row">
+        <div>
+          <label>Fiber Estimate (g)</label>
+          <input id="meal-fiber" type="number" inputmode="decimal" placeholder="e.g., 8" />
+        </div>
+        <div>
+          <label>Water (oz)</label>
+          <input id="meal-water" type="number" inputmode="decimal" placeholder="e.g., 12" />
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Flags</label>
+          <select id="meal-flags" multiple>
+            <option value="dairy">Dairy</option>
+            <option value="spicy">Spicy</option>
+            <option value="greasy">Greasy</option>
+            <option value="high_fodmap">High FODMAP</option>
+            <option value="alcohol">Alcohol</option>
+            <option value="caffeine">Caffeine</option>
+          </select>
+          <div class="small">Tip: tap to select multiple; tap again to deselect.</div>
+        </div>
+        <div>
+          <label>Mood / Stress (0–3)</label>
+          <select id="meal-stress">
+            <option value="0">0 None</option>
+            <option value="1">1 Low</option>
+            <option value="2">2 Medium</option>
+            <option value="3">3 High</option>
+          </select>
+        </div>
+      </div>
+      <label>Notes</label>
+      <textarea id="meal-notes" placeholder="Optional notes (restaurant, portion, etc.)"></textarea>
+      <div class="toolbar">
+        <button class="primary" id="save-meal">Save Meal</button>
+        <button class="ghost" id="meal-now">Set to Now</button>
+        <span class="small" id="meal-status"></span>
+      </div>
+    </section>
+
+    <!-- HISTORY -->
+    <section id="tab-history" class="card hidden">
+      <h2 style="margin:0 0 10px 0">History</h2>
+      <div class="grid-2">
+        <div>
+          <label>From</label>
+          <input id="h-from" type="date" />
+        </div>
+        <div>
+          <label>To</label>
+          <input id="h-to" type="date" />
+        </div>
+      </div>
+      <div class="toolbar" style="margin-top:8px">
+        <button id="filter-run">Apply Filter</button>
+        <button class="ghost" id="filter-clear">Clear</button>
+        <button id="export-csv">Export CSV</button>
+        <label class="pill" style="cursor:pointer">Import CSV
+          <input id="import-csv" type="file" accept="text/csv" style="display:none" />
+        </label>
+      </div>
+      <div class="card" style="margin-top:10px">
+        <table id="history-table">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Date/Time</th>
+              <th>Details</th>
+              <th class="center">Actions</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div id="history-empty" class="small" style="padding:8px">No entries yet. Your gut is shy—feed it logs. 📝</div>
+      </div>
+    </section>
+
+    <!-- TRENDS -->
+    <section id="tab-trends" class="card hidden">
+      <h2 style="margin:0 0 10px 0">Trends</h2>
+      <div class="grid-3">
+        <div class="card">
+          <div class="small">BMs per Day (last 14d)</div>
+          <canvas id="chart-bm"></canvas>
+        </div>
+        <div class="card">
+          <div class="small">Bristol Distribution (last 30d)</div>
+          <canvas id="chart-bristol"></canvas>
+        </div>
+        <div class="card">
+          <div class="small">Fiber vs BMs (approx, last 14d)</div>
+          <canvas id="chart-fiber"></canvas>
+        </div>
+      </div>
+      <p class="small">Charts are simple and private. All data stays on this device (localStorage). Export regularly if you plan to switch phones.</p>
+    </section>
+
+    <footer class="spacer"></footer>
+  </main>
+
+  <script>
+    // --- Utility helpers ---
+    const $ = sel => document.querySelector(sel);
+    const $$ = sel => Array.from(document.querySelectorAll(sel));
+    const pad2 = n => String(n).padStart(2, '0');
+    const nowLocal = () => {
+      const d = new Date();
+      const iso = `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+      return iso;
+    };
+
+    const BRISTOL = [
+      { id:1, name:"Type 1 — Separate hard lumps" },
+      { id:2, name:"Type 2 — Lumpy sausage" },
+      { id:3, name:"Type 3 — Cracked sausage" },
+      { id:4, name:"Type 4 — Smooth snake (ideal)" },
+      { id:5, name:"Type 5 — Soft blobs" },
+      { id:6, name:"Type 6 — Mushy/fluffy" },
+      { id:7, name:"Type 7 — Watery (diarrhea)" },
+    ];
+
+    // --- Storage ---
+    const KEY = 'ppl-data-v1';
+    const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || { entries: [] }; } catch { return { entries: [] }; } };
+    const save = (db) => localStorage.setItem(KEY, JSON.stringify(db));
+
+    let DB = load();
+
+    // --- Tabs ---
+    const switchTab = (name) => {
+      ['bm','meal','history','trends'].forEach(t => {
+        $('#tab-' + t).classList.toggle('hidden', t !== name);
+      });
+    };
+
+    $$("header .pill").forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
+
+    // --- Populate inputs ---
+    const bristolSel = $('#bm-bristol');
+    BRISTOL.forEach(b => {
+      const o = document.createElement('option');
+      o.value = String(b.id);
+      o.textContent = `${b.id} – ${b.name.split('—')[0].trim()}`;
+      bristolSel.appendChild(o);
+    });
+    bristolSel.value = '4';
+    $('#bristol-help').innerHTML = BRISTOL.map(b => `<span><strong>${b.id}</strong> ${b.name}</span>`).join('');
+
+    $('#bm-dt').value = nowLocal();
+    $('#meal-dt').value = nowLocal();
+
+    $('#bm-now').onclick = () => $('#bm-dt').value = nowLocal();
+    $('#meal-now').onclick = () => $('#meal-dt').value = nowLocal();
+
+    // --- Save BM ---
+    $('#save-bm').onclick = () => {
+      const entry = {
+        id: crypto.randomUUID(),
+        kind: 'bm',
+        dt: new Date($('#bm-dt').value).toISOString(),
+        bristol: Number($('#bm-bristol').value),
+        urgency: Number($('#bm-urgency').value),
+        pain: Number($('#bm-pain').value),
+        blood: $('#bm-blood').value,
+        volume: $('#bm-volume').value,
+        strain: $('#bm-strain').value,
+        duration: Number($('#bm-dur').value || 0),
+        notes: $('#bm-notes').value.trim()
+      };
+      DB.entries.push(entry);
+      save(DB);
+      $('#bm-status').textContent = 'Saved ✅';
+      setTimeout(()=> $('#bm-status').textContent = '', 1500);
+      renderHistory();
+      renderCharts();
+      // reset a few
+      $('#bm-notes').value = '';
+      $('#bm-dur').value = '';
+    };
+
+    // --- Save Meal ---
+    $('#save-meal').onclick = () => {
+      const sel = Array.from($('#meal-flags').selectedOptions).map(o => o.value);
+      const entry = {
+        id: crypto.randomUUID(),
+        kind: 'meal',
+        dt: new Date($('#meal-dt').value).toISOString(),
+        mealType: $('#meal-type').value,
+        foods: $('#meal-foods').value.trim(),
+        fiber: Number($('#meal-fiber').value || 0),
+        water: Number($('#meal-water').value || 0),
+        flags: sel,
+        stress: Number($('#meal-stress').value),
+        notes: $('#meal-notes').value.trim()
+      };
+      DB.entries.push(entry);
+      save(DB);
+      $('#meal-status').textContent = 'Saved ✅';
+      setTimeout(()=> $('#meal-status').textContent = '', 1500);
+      renderHistory();
+      renderCharts();
+      $('#meal-foods').value = '';
+      $('#meal-fiber').value = '';
+      $('#meal-water').value = '';
+      $('#meal-notes').value = '';
+    };
+
+    // --- History rendering & filter ---
+    const fmtDT = iso => {
+      const d = new Date(iso); const mm = pad2(d.getMonth()+1); const dd = pad2(d.getDate());
+      const hh = pad2(d.getHours()); const mi = pad2(d.getMinutes());
+      return `${d.getFullYear()}-${mm}-${dd} ${hh}:${mi}`;
+    };
+
+    const inRange = (iso, from, to) => {
+      const t = new Date(iso).getTime();
+      if (from && t < new Date(from + 'T00:00').getTime()) return false;
+      if (to && t > new Date(to + 'T23:59').getTime()) return false;
+      return true;
+    };
+
+    function renderHistory() {
+      const tbody = $('#history-table tbody');
+      tbody.innerHTML = '';
+      const from = $('#h-from').value; const to = $('#h-to').value;
+      let rows = 0;
+      // newest first
+      [...DB.entries].sort((a,b)=> new Date(b.dt)-new Date(a.dt)).forEach(e => {
+        if (!inRange(e.dt, from, to)) return;
+        const tr = document.createElement('tr');
+        const type = e.kind === 'bm' ? 'BM' : 'Meal';
+        const details = e.kind === 'bm'
+          ? `Bristol ${e.bristol}, vol ${e.volume}${e.blood!=='no' ? ', blood:'+e.blood : ''}${e.notes? ' — '+e.notes:''}`
+          : `${e.mealType}: ${(e.foods||'').slice(0,80)}${(e.foods||'').length>80?'…':''}`;
+        tr.innerHTML = `
+          <td>${type}</td>
+          <td class="mono">${fmtDT(e.dt)}</td>
+          <td>${details}</td>
+          <td class="center">
+            <button data-edit="${e.id}">Edit</button>
+            <button class="danger" data-del="${e.id}">Delete</button>
+          </td>`;
+        tbody.appendChild(tr);
+        rows++;
+      });
+      $('#history-empty').classList.toggle('hidden', rows>0);
+      // wire actions
+      $$('#history-table [data-del]').forEach(b => b.onclick = () => {
+        const id = b.getAttribute('data-del');
+        DB.entries = DB.entries.filter(x => x.id !== id);
+        save(DB); renderHistory(); renderCharts();
+      });
+      $$('#history-table [data-edit]').forEach(b => b.onclick = () => editEntry(b.getAttribute('data-edit')));
+    }
+
+    function editEntry(id) {
+      const e = DB.entries.find(x => x.id === id); if (!e) return;
+      if (e.kind === 'bm') {
+        switchTab('bm');
+        $('#bm-dt').value = new Date(e.dt).toISOString().slice(0,16);
+        $('#bm-bristol').value = String(e.bristol);
+        $('#bm-urgency').value = String(e.urgency);
+        $('#bm-pain').value = String(e.pain);
+        $('#bm-blood').value = e.blood;
+        $('#bm-volume').value = e.volume;
+        $('#bm-strain').value = e.strain;
+        $('#bm-dur').value = e.duration || '';
+        $('#bm-notes').value = e.notes || '';
+        // On next save, we replace (simple approach)
+        const oldHandler = $('#save-bm').onclick;
+        $('#save-bm').textContent = 'Update BM';
+        $('#save-bm').onclick = () => {
+          // delete, then save new snapshot keeping id
+          DB.entries = DB.entries.filter(x => x.id !== id);
+          const updated = {
+            id,
+            kind: 'bm',
+            dt: new Date($('#bm-dt').value).toISOString(),
+            bristol: Number($('#bm-bristol').value),
+            urgency: Number($('#bm-urgency').value),
+            pain: Number($('#bm-pain').value),
+            blood: $('#bm-blood').value,
+            volume: $('#bm-volume').value,
+            strain: $('#bm-strain').value,
+            duration: Number($('#bm-dur').value || 0),
+            notes: $('#bm-notes').value.trim()
+          };
+          DB.entries.push(updated); save(DB); renderHistory(); renderCharts();
+          $('#bm-status').textContent = 'Updated ✅';
+          setTimeout(()=> $('#bm-status').textContent = '', 1500);
+          $('#save-bm').textContent = 'Save BM';
+          $('#save-bm').onclick = oldHandler;
+        };
+      } else {
+        switchTab('meal');
+        $('#meal-dt').value = new Date(e.dt).toISOString().slice(0,16);
+        $('#meal-type').value = e.mealType;
+        $('#meal-foods').value = e.foods || '';
+        $('#meal-fiber').value = e.fiber || '';
+        $('#meal-water').value = e.water || '';
+        $$('#meal-flags option').forEach(o => o.selected = (e.flags||[]).includes(o.value));
+        $('#meal-stress').value = String(e.stress||0);
+        $('#meal-notes').value = e.notes || '';
+        const oldHandler = $('#save-meal').onclick;
+        $('#save-meal').textContent = 'Update Meal';
+        $('#save-meal').onclick = () => {
+          DB.entries = DB.entries.filter(x => x.id !== id);
+          const sel = Array.from($('#meal-flags').selectedOptions).map(o => o.value);
+          const updated = {
+            id,
+            kind: 'meal',
+            dt: new Date($('#meal-dt').value).toISOString(),
+            mealType: $('#meal-type').value,
+            foods: $('#meal-foods').value.trim(),
+            fiber: Number($('#meal-fiber').value || 0),
+            water: Number($('#meal-water').value || 0),
+            flags: sel,
+            stress: Number($('#meal-stress').value),
+            notes: $('#meal-notes').value.trim()
+          };
+          DB.entries.push(updated); save(DB); renderHistory(); renderCharts();
+          $('#meal-status').textContent = 'Updated ✅';
+          setTimeout(()=> $('#meal-status').textContent = '', 1500);
+          $('#save-meal').textContent = 'Save Meal';
+          $('#save-meal').onclick = oldHandler;
+        };
+      }
+    }
+
+    // --- CSV export/import ---
+    const csvEscape = s => '"' + String(s).replaceAll('"', '""') + '"';
+    function toCSV() {
+      const headers = ['id','kind','dt','bristol','urgency','pain','blood','volume','strain','duration','notes','mealType','foods','fiber','water','flags','stress'];
+      const lines = [headers.join(',')];
+      DB.entries.forEach(e => {
+        lines.push([
+          e.id, e.kind, e.dt,
+          e.kind==='bm'?e.bristol:'',
+          e.kind==='bm'?e.urgency:'',
+          e.kind==='bm'?e.pain:'',
+          e.kind==='bm'?e.blood:'',
+          e.kind==='bm'?e.volume:'',
+          e.kind==='bm'?e.strain:'',
+          e.kind==='bm'?e.duration:'',
+          e.kind==='bm'?e.notes:'',
+          e.kind==='meal'?e.mealType:'',
+          e.kind==='meal'?e.foods:'',
+          e.kind==='meal'?e.fiber:'',
+          e.kind==='meal'?e.water:'',
+          e.kind==='meal'?(e.flags||[]).join('|'):'',
+          e.kind==='meal'?e.stress:''
+        ].map(v=> csvEscape(v ?? '')).join(','));
+      });
+      return lines.join('\n');
+    }
+
+    function download(filename, text) {
+      const blob = new Blob([text], {type: 'text/csv'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.click();
+      setTimeout(()=> URL.revokeObjectURL(url), 1500);
+    }
+
+    $('#export-csv').onclick = () => download(`pocket-poop-log-${new Date().toISOString().slice(0,10)}.csv`, toCSV());
+
+    $('#import-csv').onchange = async (ev) => {
+      const file = ev.target.files?.[0]; if (!file) return;
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).filter(Boolean);
+      const headers = lines.shift().split(',').map(h=>h.replaceAll('"',''));
+      const get = (arr, k) => arr[headers.indexOf(k)] ?? '';
+
+      for (const line of lines) {
+        // naive CSV parse (matches our quotes)
+        const cols = [];
+        let i=0, s=line; while (s.length) {
+          if (s[0] === '"') {
+            let j = 1, cell='';
+            for (; j<s.length; j++) {
+              if (s[j] === '"' && s[j+1] === '"') { cell += '"'; j++; continue; }
+              if (s[j] === '"' && s[j+1] === ',') { j++; break; }
+              if (s[j] === '"' && j === s.length-1) { break; }
+              cell += s[j];
+            }
+            cols.push(cell); s = s.slice(j+1); if (s[0] === ',') s = s.slice(1);
+          } else {
+            const k = s.indexOf(',');
+            if (k === -1) { cols.push(s); s=''; } else { cols.push(s.slice(0,k)); s=s.slice(k+1); }
+          }
+        }
+        const kind = get(cols,'kind');
+        const id = get(cols,'id') || crypto.randomUUID();
+        const base = { id, kind, dt: get(cols,'dt') };
+        let e;
+        if (kind === 'bm') {
+          e = {
+            ...base,
+            bristol: Number(get(cols,'bristol')||0),
+            urgency: Number(get(cols,'urgency')||0),
+            pain: Number(get(cols,'pain')||0),
+            blood: get(cols,'blood')||'no',
+            volume: get(cols,'volume')||'medium',
+            strain: get(cols,'strain')||'no',
+            duration: Number(get(cols,'duration')||0),
+            notes: get(cols,'notes')||''
+          };
+        } else {
+          e = {
+            ...base,
+            mealType: get(cols,'mealType')||'Meal',
+            foods: get(cols,'foods')||'',
+            fiber: Number(get(cols,'fiber')||0),
+            water: Number(get(cols,'water')||0),
+            flags: (get(cols,'flags')||'').split('|').filter(Boolean),
+            stress: Number(get(cols,'stress')||0),
+            notes: get(cols,'notes')||''
+          };
+        }
+        // replace if same id
+        const idx = DB.entries.findIndex(x => x.id === id);
+        if (idx >= 0) DB.entries[idx] = e; else DB.entries.push(e);
+      }
+      save(DB); renderHistory(); renderCharts();
+      ev.target.value = '';
+    };
+
+    // --- Charts (no external libs) ---
+    function drawBarChart(canvas, labels, values) {
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width = canvas.clientWidth * devicePixelRatio;
+      const h = canvas.height = 180 * devicePixelRatio;
+      ctx.clearRect(0,0,w,h);
+      const max = Math.max(1, ...values);
+      const pad = 20 * devicePixelRatio;
+      const bw = (w - pad*2) / values.length;
+      ctx.font = `${12*devicePixelRatio}px system-ui`;
+      ctx.fillStyle = '#a6b1bb';
+      for (let i=0;i<values.length;i++) {
+        const val = values[i];
+        const bh = ((h - pad*2) * val / max);
+        const x = pad + i*bw + bw*0.15;
+        const y = h - pad - bh;
+        const barw = bw*0.7;
+        // bar
+        const grad = ctx.createLinearGradient(0,y,0,h);
+        grad.addColorStop(0,'#6ee7b7'); grad.addColorStop(1,'#2dd4bf33');
+        ctx.fillStyle = grad; ctx.fillRect(x,y,barw,bh);
+        // label
+        ctx.fillStyle = '#a6b1bb';
+        ctx.fillText(String(labels[i]), x, h - pad*0.3);
+      }
+      // y axis (light)
+      ctx.strokeStyle = '#233146'; ctx.beginPath(); ctx.moveTo(pad, pad); ctx.lineTo(pad, h-pad); ctx.stroke();
+    }
+
+    function drawPie(canvas, parts) {
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width = canvas.clientWidth * devicePixelRatio;
+      const h = canvas.height = 180 * devicePixelRatio;
+      ctx.clearRect(0,0,w,h);
+      const cx = w/2, cy = h/2, r = Math.min(w,h)*0.35;
+      const total = parts.reduce((a,b)=>a+b,0) || 1;
+      let start = -Math.PI/2;
+      const colors = ['#60a5fa','#34d399','#f472b6','#f59e0b','#22d3ee','#c084fc','#f87171'];
+      parts.forEach((v,i)=>{
+        const ang = 2*Math.PI * v/total;
+        ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,r,start,start+ang); ctx.closePath();
+        ctx.fillStyle = colors[i % colors.length]; ctx.fill();
+        start += ang;
+      });
+    }
+
+    function drawLine(canvas, labels, values) {
+      const ctx = canvas.getContext('2d');
+      const w = canvas.width = canvas.clientWidth * devicePixelRatio;
+      const h = canvas.height = 180 * devicePixelRatio;
+      ctx.clearRect(0,0,w,h);
+      const max = Math.max(1, ...values);
+      const pad = 20 * devicePixelRatio;
+      const dx = (w - pad*2) / Math.max(1, labels.length-1);
+      // axis
+      ctx.strokeStyle = '#233146'; ctx.beginPath(); ctx.moveTo(pad, h-pad); ctx.lineTo(w-pad, h-pad); ctx.stroke();
+      // line
+      ctx.beginPath();
+      values.forEach((v,i)=>{
+        const x = pad + i*dx; const y = h - pad - (h - pad*2) * (v/max);
+        if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      });
+      const grad = ctx.createLinearGradient(0,0,0,h); grad.addColorStop(0,'#7aa2f7'); grad.addColorStop(1,'#7aa2f733');
+      ctx.strokeStyle = grad; ctx.lineWidth = 2*devicePixelRatio; ctx.stroke();
+    }
+
+    function daysAgo(n){ const d=new Date(); d.setDate(d.getDate()-n); return d; }
+    function dateKey(d){ return d.toISOString().slice(0,10); }
+
+    function renderCharts() {
+      // BMs per day (last 14 days)
+      const labels = []; const counts = [];
+      for (let i=13; i>=0; i--) { const d=daysAgo(i); const k=dateKey(d); labels.push(k.slice(5)); counts.push(DB.entries.filter(e=>e.kind==='bm' && e.dt.slice(0,10)===k).length); }
+      drawBarChart($('#chart-bm'), labels, counts);
+
+      // Bristol distribution (last 30 days)
+      const since = daysAgo(30).toISOString();
+      const arr = DB.entries.filter(e=> e.kind==='bm' && e.dt >= since);
+      const dist = [1,2,3,4,5,6,7].map(n => arr.filter(e=>e.bristol===n).length);
+      drawPie($('#chart-bristol'), dist);
+
+      // Fiber vs BM count (last 14 days - naive)
+      const byDayFiber = {}; const byDayBMs = {};
+      for (let i=13;i>=0;i--) { const k = dateKey(daysAgo(i)); byDayFiber[k]=0; byDayBMs[k]=0; }
+      DB.entries.forEach(e=>{
+        const k = e.dt.slice(0,10);
+        if (k in byDayFiber && e.kind==='meal') byDayFiber[k]+= (e.fiber||0);
+        if (k in byDayBMs && e.kind==='bm') byDayBMs[k]++;
+      });
+      const fLabels = Object.keys(byDayFiber);
+      const fVals = fLabels.map(k=> byDayFiber[k]);
+      const bVals = fLabels.map(k=> byDayBMs[k]);
+      // scale fiber to same rough range as BM counts for friendly overlay: we draw BM counts as line of fiber (hack: convert fiber grams to approx BM scale)
+      const scaledFiber = fVals.map(v => v/Math.max(1, Math.max(...fVals)) * Math.max(1, Math.max(...bVals)));
+      drawLine($('#chart-fiber'), fLabels.map(s=>s.slice(5)), scaledFiber);
+    }
+
+    // Filters
+    $('#filter-run').onclick = renderHistory;
+    $('#filter-clear').onclick = () => { $('#h-from').value=''; $('#h-to').value=''; renderHistory(); };
+
+    // Initial
+    renderHistory();
+    renderCharts();
+  </script>
+  <script>
+  // Register service worker (required for PWA/offline + install prompt)
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js');
+    });
+  }
+  </script>
+</body>
+</html>
