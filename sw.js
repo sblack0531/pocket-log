@@ -1,5 +1,5 @@
 
-const CACHE_NAME = 'ppl-cache-v4';
+const CACHE_NAME = 'ppl-cache-v5';
 const ASSETS = [
   './',
   './index.html',
